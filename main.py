@@ -1,26 +1,37 @@
 import os
-import requests
+import logging
+import google.generativeai as genai
 from telegram import Update
-from telegram.ext import Application, MessageHandler, filters, ContextTypes
+from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
 
-TOKEN = os.getenv("TELEGRAM_TOKEN")
-API_KEY = os.getenv("GEMINI_KEY")
+# Настройка логирования, чтобы видеть ошибки в Render
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
-def get_ai_reply(text):
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={API_KEY}"
-    payload = {"contents": [{"parts": [{"text": text}]}]}
+# Берем ключи из Environment Variables
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+GEMINI_KEY = os.getenv("GEMINI_KEY")
+
+# Настройка Gemini
+genai.configure(api_key=GEMINI_KEY)
+model = genai.GenerativeModel('gemini-pro')
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_text = update.message.text
+    # Сначала отправляем статус
+    status_msg = await update.message.reply_text("Бот думает...")
+    
     try:
-        response = requests.post(url, json=payload, timeout=20)
-        return response.json()['candidates'][0]['content']['parts'][0]['text']
-    except:
-        return "Бот загружается, подождите минуту..."
+        # Запрос к нейросети
+        response = model.generate_content(user_text)
+        await status_msg.edit_text(response.text)
+    except Exception as e:
+        # Если будет ошибка, ты увидишь её прямо в Telegram
+        await status_msg.edit_text(f"Ошибка Gemini: {str(e)}")
 
-async def handle_msg(u: Update, c: ContextTypes.DEFAULT_TYPE):
-    if u.message.text:
-        await u.message.reply_text(get_ai_reply(u.message.text))
-
-if __name__ == "__main__":
-    app = Application.builder().token(TOKEN).build()
-    app.add_handler(MessageHandler(filters.TEXT, handle_msg))
-    app.run_polling()
-  
+if __name__ == '__main__':
+    application = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+    application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
+    
+    print("Бот успешно запущен!")
+    application.run_polling()
+    
